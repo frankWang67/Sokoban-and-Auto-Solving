@@ -230,6 +230,6 @@ class game_runner:
     
 if __name__ == "__main__":
     # runner = game_runner(player="human")
-    # runner = game_runner()
-    runner = game_runner(mode=2)
+    runner = game_runner()
+    # runner = game_runner(mode=2)
     runner.run()
