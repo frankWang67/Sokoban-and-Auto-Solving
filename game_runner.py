@@ -5,12 +5,37 @@ from map_maker import map_maker
 from utils import *
 
 class game_runner:
-    def __init__(self, level=0, mode="human"):
-        self.level = level
+    '''
+    Parameters:
+    - random: bool, default=True
+        Whether to generate a random map or use the preset ones.
+    - mode: int, default=1  
+        The mode of the game. 
+        1: There's no matching between boxes and targets, and boxes never vanish; 
+        2: There's matching between boxes and targets, and boxes vanish when they are placed on targets.
+    - player: str, default="auto"
+        The player of the game.
+        "auto": The game is played by the computer.
+        "human": The game is played by the human.
+    - level: int, default=0
+        The level of the game. It is only used when random=False.
+    '''
+    def __init__(self, random=True, mode=1, player="auto", level=0):
         self.size = 16
         self.map_dict = map_dict
-        # self.nmap = numeral_map(map_list[self.level], self.size)
-        self.nmap = numeral_map(map_maker().generate_map(), self.size)
+        self.mode = mode
+        self.random = random
+        self.level = level
+        if random:
+            self.maker = map_maker(mode=self.mode)
+            game_map = self.maker.generate_map()
+            if self.mode == 1:
+                self.nmap = numeral_map(game_map, self.size)
+            elif self.mode == 2:
+                targets, boxes = self.maker.get_targets_and_boxes()
+                self.nmap = numeral_map(game_map, self.size, self.mode, targets, boxes)
+        else:
+            self.nmap = numeral_map(map_list[self.level], self.size)
 
         self.tile_size = 56
         self.background_texture = pygame.image.load('./texture/ground.jpg')
@@ -37,7 +62,7 @@ class game_runner:
         self.window = pygame.display.set_mode((self.window_width, self.window_height))
         self.font = pygame.font.Font(None, 36)
         self.running = True
-        self.mode = mode
+        self.player = player
         self.start = True
         state.open = PriorityQueue()
         state.closed = set()
@@ -49,7 +74,7 @@ class game_runner:
             self.draw_map()
             pygame.display.flip()
 
-            if self.mode == "human":
+            if self.player == "human":
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -70,7 +95,7 @@ class game_runner:
                         if self.nmap.check_win():
                             self.draw_map()
                             self.next_level()
-            elif self.mode == "auto":
+            elif self.player == "auto":
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -100,16 +125,21 @@ class game_runner:
     
     def next_level(self):
         time.sleep(0.5)
-        # self.level += 1
-        # if self.level == len(map_list):
-        #     self.running = False
-        # else:
-        #     self.nmap = numeral_map(map_list[self.level], self.size)
-        #     self.start = True
-        #     # state.all_states = []
-        #     state.open = PriorityQueue()
-        #     state.closed = set()
-        self.nmap = numeral_map(map_maker().generate_map(), self.size)
+
+        if self.random:
+            game_map = self.maker.generate_map()
+            if self.mode == 1:
+                self.nmap = numeral_map(game_map, self.size)
+            elif self.mode == 2:
+                targets, boxes = self.maker.get_targets_and_boxes()
+                self.nmap = numeral_map(game_map, self.size, self.mode, targets, boxes)
+        else:
+            self.level += 1
+            if self.level == len(map_list):
+                self.running = False
+            else:
+                self.nmap = numeral_map(map_list[self.level], self.size)
+
         self.start = True
         state.open = PriorityQueue()
         state.closed = set()
@@ -127,8 +157,16 @@ class game_runner:
                     self.window.blit(self.wall_texture, (x, y))
                 elif tile == self.map_dict["target"]:
                     self.window.blit(self.target_texture, (x, y))
+                    if self.mode == 2:
+                        idx = self.nmap.targets.index((row, col))
+                        text = self.font.render(str(idx + 1), True, (255, 255, 255))
+                        self.window.blit(text, (x, y))
                 elif tile == self.map_dict["box"]:
                     self.window.blit(self.box_texture, (x, y))
+                    if self.mode == 2:
+                        idx = self.nmap.boxes.index((row, col))
+                        text = self.font.render(str(idx + 1), True, (255, 255, 255))
+                        self.window.blit(text, (x, y))
                 elif tile == self.map_dict["character"]:
                     self.window.blit(self.character_texture_list[self.character_left], (x, y))
                 elif tile == self.map_dict["box_inplace"]:
@@ -137,9 +175,9 @@ class game_runner:
                     self.window.blit(self.character_inplace_texture, (x, y))
 
         pygame.draw.rect(self.window, (128, 128, 128), (self.size * self.tile_size, 0, 200, self.size * self.tile_size))
-        mode_text = self.font.render('Mode: ' + self.mode, True, (255, 255, 255))
-        self.window.blit(mode_text, (self.size * self.tile_size + 10, 10))
-        if self.mode == 'human':
+        player_text = self.font.render('Player: ' + self.player, True, (255, 255, 255))
+        self.window.blit(player_text, (self.size * self.tile_size + 10, 10))
+        if self.player == 'human':
             # 在交互区显示按键操作提示
             control_text = self.font.render('press dir key', True, (255, 255, 255))
             self.window.blit(control_text, (self.size * self.tile_size + 10, 80))
@@ -155,11 +193,11 @@ class game_runner:
 
     def Astar(self):
         max_step = int(1e8)
-        start_state = state(self.nmap, 0, start=True)
+        start_state = state(self.nmap, 0, start=True, mode=self.mode)
         found = False
         start_time = time.time()
         for i in range(max_step):
-            found, no_solution = start_state.explore()
+            found, no_solution = start_state.explore(self.mode)
             if found or no_solution:
                 break
         text = self.font.render(f'Explored {i} states', True, (255, 255, 255))
@@ -191,6 +229,7 @@ class game_runner:
         self.running = False
     
 if __name__ == "__main__":
-    # runner = game_runner(level=50, mode="human")
-    runner = game_runner(level=0, mode="auto")
+    # runner = game_runner(player="human")
+    # runner = game_runner()
+    runner = game_runner(mode=2)
     runner.run()
